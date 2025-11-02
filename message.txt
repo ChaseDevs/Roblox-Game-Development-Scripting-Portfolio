@@ -1,0 +1,421 @@
+local ToolManagement = {}
+
+local player = game.Players.LocalPlayer
+local character = player.Character
+if not character or not character.Parent then
+	character = player.CharacterAdded:wait()
+end
+local humanoid = character:WaitForChild("Humanoid")
+local Torso = character:WaitForChild("Torso")
+local Head = character:WaitForChild("Head")
+local RA = character:WaitForChild("Right Arm")
+local LA = character:WaitForChild("Left Arm")
+local RL = character:WaitForChild("Right Leg")
+local LL = character:WaitForChild("Left Leg")
+local Using = false
+local powerBar = player.PlayerGui.Start.PowerBar.PowerFrame
+local windUp = false
+local hasPass = false
+local windUp = false
+local hasPass = false
+local HoldingBall = false
+local heldBall = nil
+local clicked = false
+local canclick = false
+local GoalkeeperBall = nil
+local Dropped = false
+local DiveCatch = false
+local Catching = false
+local DiveCatchEnabled = false
+local SF = "R"
+local GM = "A"
+local waving = false
+local R, Rays, E = require, RaycastParams, Enum
+local Unrag = game.ReplicatedStorage:WaitForChild("Events").Unragdoll
+local RagdollEvent = game.ReplicatedStorage:WaitForChild("Events").Ragdoll
+
+local ShieldParams = Rays.new()
+ShieldParams.FilterType = E.RaycastFilterType.Exclude
+ShieldParams.CollisionGroup = "ShieldRaycast"
+
+local Sizes = {
+	["Right Leg"] = Vector3.new(1, 2, 1);
+	["Left Leg"] = Vector3.new(1, 2, 1);
+	["Right Arm"] = Vector3.new(1, 2, 1);
+	["Left Arm"] = Vector3.new(1, 2, 1);
+	["Head"] = Vector3.new(2, 1, 1);
+	["Torso"] = Vector3.new(2, 2, 1);
+}
+local Offsets = {
+	["Torso"] = Vector3.new(),
+	["Head"] = Vector3.new(0,1.5,0),
+
+	["Right Arm"] = Vector3.new(1,1,0),
+	["Right Leg"] = Vector3.new(0.5,-1,0),
+
+	["Left Arm"] = Vector3.new(-1,1,0),
+	["Left Leg"] = Vector3.new(-0.5,-1,0),
+}
+
+
+local function Shielded(Ball)
+
+	local HumanoidRootPart = player.Character:WaitForChild("HumanoidRootPart")
+	local filterTable = { Ball }
+
+	for _, part in ipairs(player.Character:GetDescendants()) do
+		table.insert(filterTable, part)
+	end
+
+	ShieldParams.FilterDescendantsInstances = filterTable
+
+	local PartPos = HumanoidRootPart.Position
+	if Offsets[player.Character.Torso.Name] then
+		PartPos = HumanoidRootPart.CFrame * Offsets[player.Character.Torso.Name]
+	end
+
+	local Origin = PartPos * Vector3.new(1,0,1) + Vector3.new(0, Ball.Position.Y, 0)
+	local Destination = Ball.Position
+
+	local Direction = (Destination - Origin) * 1
+	local RaycastResult:RaycastResult = workspace:Raycast(Origin, Direction, ShieldParams)
+	if RaycastResult then
+		return RaycastResult.Instance ~= Ball
+	end
+
+	return false
+end
+
+
+local TweenService = game:GetService("TweenService")
+
+local function AnkleCheck()
+	local Chance = math.random(1, 2)
+	if Chance == 1 then
+		ToolManagement.Ankle()
+	else
+		return
+	end
+end
+
+local function LocalBodyVelocity(Ball, Angle, Power)
+	local Velocity = Instance.new("BodyVelocity", Ball)
+	Velocity.Name = player.Name
+	Velocity.Velocity = Power
+	Velocity.MaxForce = Angle
+
+	game.Debris:AddItem(Velocity, 0.3)
+end
+
+function ToolManagement.check()
+	return SF
+end
+
+function ToolManagement.Set(F)
+	SF = F
+end
+
+function ToolManagement.setGM(b)
+	GM = b
+end
+
+function ToolManagement.getGM()
+	return GM
+end
+
+local Holding = false
+
+function ToolManagement.SetHolding(b)
+	Holding = b
+end
+
+function ToolManagement.GetHolding()
+	return Holding
+end
+
+function ToolManagement.SetWaving(b)
+	waving = b
+end
+
+function ToolManagement.GetWaving()
+	return waving
+end
+
+function ToolManagement.ApplyForce(hit, limb, ankle, cooldown)
+	for i, v in pairs(hit:GetChildren()) do
+		if v:IsA("BodyVelocity") then
+			v:Remove()
+		end
+	end
+	
+	if Shielded(hit) then return end
+
+	game.ReplicatedStorage.ChangeOwner:FireServer(hit, hit.Position, cooldown, character[limb], character[limb].Position, character[limb].Orientation)
+	
+	hit.Touched:Connect(function(touched)
+		if touched.Name == "Wall" or touched.Name == "Post" or touched.Name == "Net" then
+			for i, v in pairs(hit:GetChildren()) do
+				if v.Name == "BodyVelocity" then v:Destroy() end
+			end
+		end
+	end)
+end
+
+function ToolManagement.ApplyGKForce(hit)
+	if hit.Size ~= Vector3.new(2.5,2.5,2.5) then
+		game:GetService("ReplicatedStorage").ServerRemote:FireServer("BallResize")
+		player:Kick("Kicked for Resizing Ball.")
+		return
+	end
+
+	for i, v in pairs(hit:GetChildren()) do
+		if v:IsA("BodyVelocity") then
+			v:Destroy()
+		end
+	end
+
+
+	hit.Velocity = Vector3.new(0,0,0)
+	hit.RotVelocity = Vector3.new(0,0,0)
+
+	hit.Sound:Play()
+
+	if not holdingBall then
+		if hit.Owner.Value ~= player then
+			game.ReplicatedStorage.ApplyGKReact:FireServer(hit, hit.Position)
+		else
+			local React = Instance.new("BodyVelocity", hit)
+			React.Name = player.Name
+			React.Velocity = player.Character["HumanoidRootPart"].CFrame.lookVector * 45
+			React.MaxForce = Vector3.new(math.huge,math.huge,math.huge)
+			game.Debris:AddItem(React, 0.3)
+		end
+	end
+	task.wait(0.1)
+	if holdingBall then
+		hit.Velocity = Vector3.new(0,0,0)
+		hit.RotVelocity = Vector3.new(0,0,0)
+
+		for i, v in pairs(hit:GetChildren()) do
+			if v:IsA("BodyVelocity") then
+				v:Destroy()
+			end
+		end
+	end
+end
+
+local BH = player.Character.Humanoid:LoadAnimation(game.ReplicatedStorage.Animations.BallHolds.Hold)
+local TPose = player.Character.Humanoid:LoadAnimation(game.ReplicatedStorage.Animations.BallHolds["TPose"])
+local Levitate = player.Character.Humanoid:LoadAnimation(game.ReplicatedStorage.Animations.BallHolds.Levitate)
+
+function ToolManagement.attachBall(b, t)
+	if b ~= nil then
+		if b.Name ~= "VCL" then return end
+		if RA:FindFirstChild("handsOn") == nil then
+
+
+			if b.Locked == true then return end
+			if b.Size ~= Vector3.new(2.5,2.5,2.5) then
+				game:GetService("ReplicatedStorage").ServerRemote:FireServer("BallResize")
+				player:Kick("Kicked for Resizing Ball.")
+				return
+			end
+
+			for i,v in ipairs(b:GetChildren()) do
+				if v:IsA("BodyVelocity") then
+					v:Destroy()
+				end
+			end
+
+			b.Velocity = Vector3.new()
+			b.RotVelocity = Vector3.new()
+
+			Holding = b
+			heldBall = b
+			holdingBall = true
+
+			game.ReplicatedStorage.CatchBall:FireServer(b, t, player)
+			BH:Play()
+		end    
+	end
+end
+
+function ToolManagement.StopHoldAnims()
+	BH:Stop()
+	TPose:Stop()
+	Levitate:Stop()
+end
+
+function ToolManagement.dropBall()
+	if heldBall:FindFirstChild("HoldingPlayer") then
+		heldBall.HoldingPlayer:Destroy()
+	end
+	if ToolManagement.GetHolding() then
+		if heldBall ~= nil and heldBall:FindFirstChild("Owner") then
+			heldBall.Locked = false
+			game.ReplicatedStorage.DropBall:FireServer(heldBall)
+		end
+	end
+	BH:Stop()
+	TPose:Stop()
+	Levitate:Stop()
+	player.PlayerGui.Start.Six_Second.Visible = false
+	holdingBall = false
+	Holding = false
+	heldBall = nil
+	for _,v in pairs(character:GetDescendants()) do
+		if v.Name == "handsOn" then
+			v:Destroy()
+		end
+		if v.Name == "clientWeld" then
+			v:Destroy()
+		end
+	end
+end
+
+function ToolManagement.SetUsing(b)
+	Using = b
+end
+
+function ToolManagement.GetUsing()
+	return Using
+end
+
+function ToolManagement.powerUp(percent, bool)
+	if bool	then
+		powerBar:TweenSize(UDim2.new(-1*percent,0,1,0), Enum.EasingDirection.Out, Enum.EasingStyle.Quint, 0.2, true)
+	else
+		powerBar:TweenSize(UDim2.new(-1+percent,0,1,0), Enum.EasingDirection.Out, Enum.EasingStyle.Quint, 0.2, true)
+	end
+	powerBar.Parent.Visible = true
+end
+
+powerBar:GetPropertyChangedSignal("Size"):Connect(function()
+	local percent = powerBar.Size.X.Scale + 1
+	powerBar.Parent.Percentage.Text = math.round(percent * 100).."%"
+end)
+
+
+function ToolManagement.getWindUp()
+	return windUp
+end
+
+function ToolManagement.setWindUp(b)
+	windUp = b
+end
+
+function ToolManagement.resetPowerBar()
+	local targetSize = UDim2.new(-1, 0, 1, 0)
+	local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(powerBar, tweenInfo, { Size = targetSize })
+	tween:Play()
+
+	tween.Completed:Connect(function()
+		powerBar.Parent.Percentage.Text = "0%"
+		powerBar.Parent.Visible = false
+	end)
+end
+
+function ToolManagement.Ankle()
+	local Anim = Instance.new("Animation")
+
+	ToolManagement.SetUsing(true)
+	ToolManagement.setWindUp(false)
+	ToolManagement.ResetWelds()
+	ToolManagement.resetPowerBar()
+	workspace.CurrentCamera.CameraSubject = Head
+	character:WaitForChild("Humanoid"):SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+	character.Humanoid.WalkSpeed = 0
+	character.Humanoid.JumpPower = 0
+	character.Humanoid.AutoRotate = false
+	RagdollEvent:FireServer()
+	task.wait(1)
+	Unrag:FireServer()
+	ToolManagement.ResetWelds()
+end
+
+
+function ToolManagement.showPowerBar()
+	powerBar.Parent.Visible = true
+end
+
+function ToolManagement.getHoldingBall()
+	return holdingBall
+end
+
+function ToolManagement.getHeldBall()
+	return heldBall
+end
+
+function ToolManagement.ClickedAlready()
+	return clicked
+end
+
+function ToolManagement.Click(c)
+	clicked = c
+end
+
+function ToolManagement.AllowClick(c)
+	canclick = c
+end
+
+function ToolManagement.DiveCatchStatus()
+	return DiveCatch
+end
+
+function ToolManagement.DiveCatchEnabledStatus()
+	return DiveCatchEnabled
+end
+
+function ToolManagement.EnableDiveCatch(B)
+	DiveCatch = B
+end
+
+function ToolManagement.DiveCatch()
+	return DiveCatch
+end
+
+function ToolManagement.Catch(B)
+	Catching = B
+end
+
+function ToolManagement.ToggleDiveCatch(B)
+	DiveCatchEnabled = B
+end
+
+function ToolManagement.Throw(ball, properties)
+	heldBall.Locked = false
+	BH:Stop()
+	TPose:Stop()
+	Levitate:Stop()
+	if heldBall:FindFirstChild("HoldingPlayer") then
+		heldBall.HoldingPlayer:Destroy()
+	end
+	local power = properties[1]
+	game.ReplicatedStorage.Controllers.ServerOwnership.ThrowBall:FireServer(ball, power)
+end
+
+function ToolManagement.ResetWelds()
+	game.ReplicatedStorage.ResetWelds:FireServer()
+	for _,v in pairs(Torso:GetChildren()) do
+		if v:IsA("Weld") and v.Name ~= "TDragger" then
+			v:Destroy()
+		end
+	end
+
+	local LS = Torso:FindFirstChild("Left Shoulder")
+	local RS = Torso:FindFirstChild("Right Shoulder")
+	local LH = Torso:FindFirstChild("Left Hip")
+	local RH = Torso:FindFirstChild("Right Hip")
+	local NE = Torso:FindFirstChild("Neck")
+
+	local joints = {LS, RS, LH, RH, NE}
+	local correspondingLimbs = {LA, RA, LL, RL, Head}
+
+	for i,v in pairs(joints) do
+		if v == nil then repeat task.wait() until v end
+		v.Part1 = correspondingLimbs[i]
+	end		
+end
+
+return ToolManagement
